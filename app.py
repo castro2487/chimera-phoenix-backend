@@ -1,32 +1,31 @@
 import os
-import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from dotenv import load_dotenv
-
-load_dotenv()  # Carga .env si existe (opcional)
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/TheBloke/DeepSeek-Coder-V2-Lite-GGUF"
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 
 class Prompt(BaseModel):
     prompt: str
 
 app = FastAPI()
 
+# Descargar y cargar el modelo
+model_path = hf_hub_download(
+    repo_id="ijohn07/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M-GGUF",
+    filename="deepseek-coder-v2-lite-instruct-q4_k_m.gguf",
+    cache_dir="/app/models"
+)
+
+llm = Llama(model_path=model_path, n_ctx=2048, n_threads=4)
+
 @app.get("/")
-def health():
-    return {"status": "Phoenix proxy alive 🚀"}
+def read_root():
+    return {"status": "Modelo cargado correctamente."}
 
 @app.post("/chat")
-async def chat_endpoint(data: Prompt):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    resp = requests.post(API_URL, headers=headers, json={"inputs": data.prompt}, timeout=120)
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    out = resp.json()
-    # Ajusta según formato de salida
-    if isinstance(out, list) and "generated_text" in out[0]:
-        text = out[0]["generated_text"]
-    else:
-        text = out.get("generated_text", str(out))
-    return {"response": text}
+async def chat(prompt: Prompt):
+    try:
+        output = llm(prompt.prompt, max_tokens=256, temperature=0.7)
+        return {"response": output["choices"][0]["text"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
